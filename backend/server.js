@@ -15,6 +15,14 @@ const supabase = createClient(
   process.env.SUPABASE_KEY
 );
 
+function summarize(text) {
+  const lines = text.split(/\n+/).filter((line) => line.trim() !== "");
+  const importantLines = lines.filter(
+    (line) => line.includes(":") || line.length > 80 || /^[A-Z]/.test(line)
+  );
+  return importantLines.slice(0, 10);
+}
+
 function extractImportantInfo(text) {
   const lines = text
     .split(/\n+/)
@@ -85,7 +93,7 @@ app.post("/upload", async (req, res) => {
     const pdfBuffer = Buffer.from(base64File, "base64");
     const data = await pdfParse(pdfBuffer);
 
-    const importantInfo = extractImportantInfo(data.text);
+    const importantInfo = summarize(data.text);
 
     const cards = importantInfo.map((line, index) => ({
       title: `Carte ${index + 1}`,
