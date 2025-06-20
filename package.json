@@ -13,12 +13,13 @@
     "axios": "^1.9.0",
     "expo": "~53.0.10",
     "expo-document-picker": "~13.1.5",
+    "expo-file-system": "~18.1.10",
     "expo-status-bar": "~2.2.3",
     "react": "19.0.0",
     "react-native": "0.79.3",
     "react-native-document-picker": "^9.3.1",
     "react-native-fs": "^2.20.0",
-    "expo-file-system": "~18.1.10"
+    "sequelize": "^6.37.7"
   },
   "devDependencies": {
     "@babel/core": "^7.20.0"

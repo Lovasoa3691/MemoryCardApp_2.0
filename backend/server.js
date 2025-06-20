@@ -1,6 +1,8 @@
 const express = require("express");
 const cors = require("cors");
 const pdfParse = require("pdf-parse");
+const { createClient } = require("@supabase/supabase-js");
+require("dotenv").config();
 
 const app = express();
 const port = 5000;
@@ -8,13 +10,10 @@ const port = 5000;
 app.use(cors());
 app.use(express.json({ limit: "50mb" }));
 
-function summarize(text) {
-  const lines = text.split(/\n+/).filter((line) => line.trim() !== "");
-  const importantLines = lines.filter(
-    (line) => line.includes(":") || line.length > 80 || /^[A-Z]/.test(line)
-  );
-  return importantLines.slice(0, 10);
-}
+const supabase = createClient(
+  process.env.SUPABASE_URL,
+  process.env.SUPABASE_KEY
+);
 
 function extractImportantInfo(text) {
   const lines = text
@@ -56,6 +55,25 @@ function extractImportantInfo(text) {
   return info;
 }
 
+app.get("/cartes", async (req, res) => {
+  const { data, error } = await supabase
+    .from("Carte")
+    .select("*")
+    .order("created_at", { ascending: false });
+
+  if (error) return res.status(400).json({ error });
+  res.json(data);
+});
+
+app.delete("/cartes/:id", async (req, res) => {
+  const { id } = req.params;
+
+  const { error } = await supabase.from("Carte").delete().eq("id", id);
+
+  if (error) return res.status(400).json({ error });
+  res.json({ message: "Carte supprimée" });
+});
+
 app.post("/upload", async (req, res) => {
   try {
     const { file: base64File, name } = req.body;
@@ -67,12 +85,36 @@ app.post("/upload", async (req, res) => {
     const pdfBuffer = Buffer.from(base64File, "base64");
     const data = await pdfParse(pdfBuffer);
 
-    const summaryLines = extractImportantInfo(data.text);
+    const importantInfo = extractImportantInfo(data.text);
 
-    const cards = summaryLines.map((line, index) => ({
+    const cards = importantInfo.map((line, index) => ({
       title: `Carte ${index + 1}`,
       content: line,
     }));
+
+    // const cards = [];
+
+    // Object.entries(importantInfo).forEach(([category, lines]) => {
+    //   lines.forEach((line) => {
+    //     cards.push({
+    //       titre: category.charAt(0).toUpperCase() + category.slice(1),
+    //       contenu: line,
+    //     });
+    //   });
+    // });
+
+    // const { data: savedCards, error } = await supabase
+    //   .from("Carte")
+    //   .insert(cards);
+
+    // if (error) {
+    //   console.error("Erreur Supabase :", error);
+    //   return res
+    //     .status(500)
+    //     .json({ error: "Erreur lors de l'enregistrement." });
+    // }
+
+    // res.json({ cards: savedCards });
 
     res.json({ cards });
   } catch (err) {
