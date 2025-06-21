@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import {
   View,
   Button,
@@ -6,6 +6,7 @@ import {
   ActivityIndicator,
   Alert,
   ScrollView,
+  TouchableOpacity,
 } from "react-native";
 import axios from "axios";
 import * as DocumentPicker from "expo-document-picker";
@@ -14,8 +15,37 @@ import * as FileSystem from "expo-file-system";
 const UploadPDFScreen = () => {
   const [selectedFile, setSelectedFile] = useState(null);
   const [loading, setLoading] = useState(false);
-  const [cards, setCards] = useState([]);
-  const [history, setHistory] = useState([]);
+  const [cards, setCards] = useState({
+    carte: "",
+  });
+
+  const [carteData, setCarteData] = useState([]);
+
+  const chargerCartes = async () => {
+    try {
+      await axios
+        // .get("http://192.168.137.66:5000/cartes")
+        .get("https://memorycardapp-2-0.onrender.com/cartes")
+        .then((response) => {
+          // console.log("Cartes chargées:", response.data);
+          setCarteData(response.data);
+        })
+        .catch((error) => {
+          console.error("Erreur lors du chargement des cartes:", error);
+          Alert.alert("Erreur", "Impossible de charger les cartes");
+        });
+    } catch (error) {
+      console.error("Erreur de chargement:", error);
+      Alert.alert(
+        "Erreur",
+        "Une erreur s'est produite lors du chargement des cartes"
+      );
+    }
+  };
+
+  useEffect(() => {
+    chargerCartes();
+  }, []);
 
   const pickPDF = async () => {
     try {
@@ -23,10 +53,20 @@ const UploadPDFScreen = () => {
         type: "application/pdf",
       });
 
-      console.log("Résultat selection:", result);
+      console.log("Résultat sélection:", result);
 
       if (!result.canceled && result.assets && result.assets.length > 0) {
-        setSelectedFile(result.assets[0]);
+        const selected = result.assets[0];
+
+        const fichierExiste = carteData.some(
+          (carte) => carte.titre === selected.name
+        );
+
+        if (fichierExiste) {
+          Alert.alert("Erreur", "Ce fichier a déjà été sélectionné ou envoyé.");
+        } else {
+          setSelectedFile(selected);
+        }
       } else {
         Alert.alert("Erreur", "Aucun fichier sélectionné");
       }
@@ -55,6 +95,7 @@ const UploadPDFScreen = () => {
       };
 
       const response = await axios.post(
+        // "http://192.168.137.66:5000/upload",
         "https://memorycardapp-2-0.onrender.com/upload",
         payload,
         {
@@ -64,15 +105,42 @@ const UploadPDFScreen = () => {
         }
       );
 
-      // console.log("Réponse du backend :", response.data);
-      setCards(response.data.cards);
-      setHistory((prevHistory) => [...prevHistory, ...response.data.cards]);
+      // console.log(response.data.resultat);
+      setCards({
+        carte: response.data.resultat,
+        fichier: response.data.fichier,
+      });
+
+      chargerCartes();
     } catch (err) {
       console.error(err);
       Alert.alert("Erreur", "Impossible d’envoyer le PDF");
     } finally {
       setLoading(false);
     }
+  };
+
+  const supprimerCarte = async (id) => {
+    try {
+      // await axios.delete(`http://192.168.137.66:5000/cartes/${id}`);
+      await axios.delete(`https://memorycardapp-2-0.onrender.com/cartes/${id}`);
+      Alert.alert("Succès", "Carte supprimée avec succès");
+      chargerCartes();
+    } catch (error) {
+      console.error("Erreur lors de la suppression de la carte:", error);
+      Alert.alert("Erreur", "Impossible de supprimer la carte");
+    }
+  };
+
+  const formatDate = (date) => {
+    const current = new Date(date);
+    const year = current.getFullYear();
+    const month = String(current.getMonth() + 1).padStart(2, "0");
+    const day = String(current.getDate()).padStart(2, "0");
+    const hours = String(current.getHours()).padStart(2, "0");
+    const minutes = String(current.getMinutes()).padStart(2, "0");
+
+    return `${year}/${month}/${day} ${hours}:${minutes}`;
   };
 
   return (
@@ -87,14 +155,12 @@ const UploadPDFScreen = () => {
         disabled={!selectedFile || loading}
       />
       {loading && <ActivityIndicator size="large" color="#0000ff" />}
-
-      {/* Résumé en cours */}
-      {cards.length > 0 && (
+      {carteData.length > 0 && (
         <ScrollView style={{ marginTop: 20 }}>
           <Text style={{ fontWeight: "bold" }}>Cartes générées :</Text>
-          {cards.map((card, index) => (
+          {carteData.map((carte, index) => (
             <View
-              key={index}
+              key={carte.idCarte}
               style={{
                 backgroundColor: "#e0ffe0",
                 marginVertical: 5,
@@ -102,31 +168,12 @@ const UploadPDFScreen = () => {
                 borderRadius: 5,
               }}
             >
-              <Text style={{ fontWeight: "bold" }}>{card.title}</Text>
-              <Text>{card.content}</Text>
-            </View>
-          ))}
-        </ScrollView>
-      )}
-
-      {/* Historique des cartes */}
-      {history.length > 0 && (
-        <ScrollView style={{ marginTop: 30 }}>
-          <Text style={{ fontWeight: "bold" }}>Historique :</Text>
-          {history.map((card, index) => (
-            <View
-              key={index}
-              style={{
-                backgroundColor: "#f0f0f0",
-                marginVertical: 5,
-                padding: 10,
-                borderRadius: 5,
-              }}
-            >
-              <Text style={{ fontWeight: "bold" }}>{card.title}</Text>
-              <Text>{card.content}</Text>
+              <Text style={{ fontWeight: "bold" }}>
+                {carte.titre + " || crée le " + formatDate(carte.created_at)}
+              </Text>
+              <Text>{carte.contenu}</Text>
               <TouchableOpacity
-                onPress={() => deleteCardFromHistory(index)}
+                onPress={() => supprimerCarte(carte.idCarte)}
                 style={{
                   marginTop: 5,
                   backgroundColor: "#ffcccc",
@@ -135,7 +182,7 @@ const UploadPDFScreen = () => {
                   alignSelf: "flex-end",
                 }}
               >
-                <Text style={{ color: "red" }}>&times</Text>
+                <Text style={{ color: "red" }}>Supprimer</Text>
               </TouchableOpacity>
             </View>
           ))}

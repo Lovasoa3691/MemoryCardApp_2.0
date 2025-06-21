@@ -3,6 +3,7 @@ const cors = require("cors");
 const pdfParse = require("pdf-parse");
 const { createClient } = require("@supabase/supabase-js");
 require("dotenv").config();
+const axios = require("axios");
 
 const app = express();
 const port = 5000;
@@ -15,12 +16,42 @@ const supabase = createClient(
   process.env.SUPABASE_KEY
 );
 
-function summarize(text) {
-  const lines = text.split(/\n+/).filter((line) => line.trim() !== "");
-  const importantLines = lines.filter(
-    (line) => line.includes(":") || line.length > 80 || /^[A-Z]/.test(line)
-  );
-  return importantLines.slice(0, 10);
+async function summarizeText(text) {
+  try {
+    const response = await axios.post(
+      "https://api.groq.com/openai/v1/chat/completions",
+      {
+        model: "llama3-70b-8192",
+        messages: [
+          {
+            role: "system",
+            content:
+              "Tu es un assistant intelligent qui résume des documents en français.",
+          },
+          {
+            role: "user",
+            content: `Voici un texte :\n\n${text}\n\nFais un résumé clair et structuré en quelques phrases.`,
+          },
+        ],
+        temperature: 0.7,
+        max_tokens: 500,
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${process.env.GROQ_API_KEY}`,
+          "Content-Type": "application/json",
+        },
+      }
+    );
+
+    return response.data.choices[0].message.content;
+  } catch (error) {
+    console.error(
+      "Erreur avec Groq API :",
+      error.response?.data || error.message
+    );
+    throw error;
+  }
 }
 
 function extractImportantInfo(text) {
@@ -73,10 +104,23 @@ app.get("/cartes", async (req, res) => {
   res.json(data);
 });
 
+app.get("/cartes/:id", async (req, res) => {
+  const { id } = req.params;
+
+  const { data, error } = await supabase
+    .from("Carte")
+    .select("*")
+    .eq("titre", id)
+    .single();
+
+  if (error) return res.status(400).json({ error });
+  res.json(data);
+});
+
 app.delete("/cartes/:id", async (req, res) => {
   const { id } = req.params;
 
-  const { error } = await supabase.from("Carte").delete().eq("id", id);
+  const { error } = await supabase.from("Carte").delete().eq("idCarte", id);
 
   if (error) return res.status(400).json({ error });
   res.json({ message: "Carte supprimée" });
@@ -91,40 +135,34 @@ app.post("/upload", async (req, res) => {
     }
 
     const pdfBuffer = Buffer.from(base64File, "base64");
-    const data = await pdfParse(pdfBuffer);
+    const dataInfo = await pdfParse(pdfBuffer);
 
-    const importantInfo = summarize(data.text);
+    const importantInfo = await summarizeText(dataInfo.text);
 
-    const cards = importantInfo.map((line, index) => ({
-      title: `Carte ${index + 1}`,
-      content: line,
-    }));
+    const { data, error } = await supabase
+      .from("Carte")
+      .insert([
+        {
+          titre: name,
+          contenu: importantInfo,
+        },
+      ])
+      .select();
 
-    // const cards = [];
+    if (error) {
+      console.error("Erreur Supabase :", error);
+      return res
+        .status(500)
+        .json({ error: "Erreur lors de l'enregistrement." });
+    }
 
-    // Object.entries(importantInfo).forEach(([category, lines]) => {
-    //   lines.forEach((line) => {
-    //     cards.push({
-    //       titre: category.charAt(0).toUpperCase() + category.slice(1),
-    //       contenu: line,
-    //     });
-    //   });
-    // });
+    res.json({
+      message: "Information enregistrée avec succès",
+      resultat: importantInfo,
+      fichier: name,
+    });
 
-    // const { data: savedCards, error } = await supabase
-    //   .from("Carte")
-    //   .insert(cards);
-
-    // if (error) {
-    //   console.error("Erreur Supabase :", error);
-    //   return res
-    //     .status(500)
-    //     .json({ error: "Erreur lors de l'enregistrement." });
-    // }
-
-    // res.json({ cards: savedCards });
-
-    res.json({ cards });
+    // res.json({ resultat: importantInfo, fichier: name });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Erreur lors du traitement du fichier." });
